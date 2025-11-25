@@ -4,7 +4,7 @@ from bleak import BleakScanner
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QRadioButton, QSpinBox, QButtonGroup,
                              QPushButton, QStackedWidget, QComboBox, QFormLayout,
-                             QScrollArea, QGroupBox)
+                             QScrollArea, QGroupBox, QListWidget, QPlainTextEdit, QMessageBox, QInputDialog)
 from PyQt6.QtCore import Qt, pyqtSignal
 from logic.referee import Referee
 from core.device_node import DeviceNode
@@ -13,7 +13,7 @@ from utils.i18n import i18n
 
 
 class SetupWizard(QWidget):
-    setup_finished = pyqtSignal(str, list)
+    setup_finished = pyqtSignal(str, list, dict)
     back_to_home_requested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -23,41 +23,77 @@ class SetupWizard(QWidget):
         self.scanned_devices = []
         self.is_scanning = False
         self.scan_task = None
-        self.ref_cards = []  # 确保初始化
+        self.ref_cards = []
+        self.groups_data = {}
+        self.active_group = None
+
+        # 暂存恢复的裁判配置信息
+        self._pending_ref_configs = []
 
         self.init_ui()
         i18n.language_changed.connect(self.retranslate_ui)
 
-    # --- 【新增】重置方法 ---
     def reset(self):
-        """重置向导到初始状态"""
-        # 1. 停止可能的扫描
+        """重置为新建项目状态"""
         self.stop_scan_safe()
-
-        # 2. 切回第一页
         self.stack.setCurrentIndex(0)
-
-        # 3. 重置控件状态
         self.input_proj_name.setText("My Match")
         self.rb_single.setChecked(True)
         self.spin_ref_count.setValue(2)
         self.spin_ref_count.setEnabled(False)
         self.lbl_error_msg.setText("")
-
-        # 4. 更新标题
+        self.groups_data = {}
+        self.list_groups.clear()
+        self.txt_names.clear()
+        self.combo_active_group.clear()
+        self.combo_active_group.addItem(i18n.tr("val_free_mode"), None)
+        self._pending_ref_configs = []
         self.lbl_title.setText(i18n.tr("wiz_p1_title"))
 
+    def restore_state(self, config_data):
+        """从历史记录恢复状态 (Populate UI)"""
+        self.reset()
+
+        # 1. Page 1 基础信息
+        self.project_name = config_data.get("project_name", "My Match")
+        self.input_proj_name.setText(self.project_name)
+
+        # 2. 裁判数量与模式
+        refs_data = config_data.get("referees", [])
+        self._pending_ref_configs = refs_data  # 暂存，用于 Page 2 生成卡片时设置模式
+
+        count = len(refs_data)
+        if count > 1:
+            self.rb_multi.setChecked(True)
+            self.spin_ref_count.setValue(count)
+        else:
+            self.rb_single.setChecked(True)
+
+        # 3. 组别名单
+        t_data = config_data.get("tournament_data", {})
+        self.groups_data = t_data.get("groups", {})
+        active_grp = t_data.get("active_group")
+
+        # 刷新组别列表 UI
+        for grp in self.groups_data.keys():
+            self.list_groups.addItem(grp)
+        self.refresh_active_combo()
+
+        # 选中之前的 Active Group
+        idx = self.combo_active_group.findData(active_grp)
+        if idx >= 0:
+            self.combo_active_group.setCurrentIndex(idx)
+
+        print("Wizard state restored.")
+
     def init_ui(self):
-        # ... (保持不变)
         self.main_layout = QVBoxLayout(self)
 
-        # 导航栏
+        # Nav
         nav_layout = QHBoxLayout()
         self.btn_nav_back = QPushButton()
         self.btn_nav_back.clicked.connect(self.on_nav_back)
         self.btn_nav_back.setFixedWidth(100)
-        self.btn_nav_back.setStyleSheet(
-            "QPushButton { background-color: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 4px; padding: 4px 10px; } QPushButton:hover { background-color: #bdc3c7; }")
 
         self.lbl_title = QLabel()
         self.lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
@@ -67,7 +103,7 @@ class SetupWizard(QWidget):
         nav_layout.addStretch()
         self.main_layout.addLayout(nav_layout)
 
-        # 堆叠窗口
+        # Stack
         self.stack = QStackedWidget()
         self.page1 = self.create_page1()
         self.page2 = self.create_page2()
@@ -75,7 +111,7 @@ class SetupWizard(QWidget):
         self.stack.addWidget(self.page2)
         self.main_layout.addWidget(self.stack)
 
-        # 全局错误提示 Label
+        # Error Msg
         self.lbl_error_msg = QLabel("")
         self.lbl_error_msg.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
         self.lbl_error_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -90,10 +126,10 @@ class SetupWizard(QWidget):
     def create_page1(self):
         page = QWidget()
         layout = QVBoxLayout(page)
-        form_container = QWidget()
-        form_layout = QFormLayout(form_container)
-        form_layout.setContentsMargins(20, 20, 20, 20)
-        form_layout.setSpacing(15)
+
+        # --- 基本设置 ---
+        form_group = QGroupBox("Basic Settings")
+        form_layout = QFormLayout(form_group)
 
         self.input_proj_name = QLineEdit("My Match")
         self.lbl_proj_name = QLabel()
@@ -117,7 +153,59 @@ class SetupWizard(QWidget):
         self.spin_ref_count.setRange(2, 10)
         self.spin_ref_count.setEnabled(False)
         form_layout.addRow(self.lbl_ref_count, self.spin_ref_count)
-        layout.addWidget(form_container)
+
+        layout.addWidget(form_group)
+
+        # --- 名单配置区域 (增强部分) ---
+        self.grp_contestants = QGroupBox()
+        contestant_layout = QVBoxLayout(self.grp_contestants)
+
+        # 上半部分：左右分栏
+        h_split = QHBoxLayout()
+
+        # 左侧：组别列表
+        left_box = QVBoxLayout()
+        self.lbl_group_list = QLabel()
+        self.list_groups = QListWidget()
+        self.list_groups.currentItemChanged.connect(self.on_group_selected)
+
+        btn_box = QHBoxLayout()
+        self.btn_add_group = QPushButton("+")
+        self.btn_add_group.clicked.connect(self.add_group)
+        self.btn_del_group = QPushButton("-")
+        self.btn_del_group.clicked.connect(self.del_group)
+        btn_box.addWidget(self.btn_add_group)
+        btn_box.addWidget(self.btn_del_group)
+
+        left_box.addWidget(self.lbl_group_list)
+        left_box.addWidget(self.list_groups)
+        left_box.addLayout(btn_box)
+
+        # 右侧：名单编辑
+        right_box = QVBoxLayout()
+        self.lbl_names_edit = QLabel()
+        self.txt_names = QPlainTextEdit()
+        self.txt_names.setPlaceholderText("Name 1\nName 2\n...")
+        self.txt_names.textChanged.connect(self.save_current_group_names)
+        self.txt_names.setEnabled(False)
+
+        right_box.addWidget(self.lbl_names_edit)
+        right_box.addWidget(self.txt_names)
+
+        h_split.addLayout(left_box, 1)
+        h_split.addLayout(right_box, 2)
+        contestant_layout.addLayout(h_split)
+
+        # 底部：选择生效组别
+        active_layout = QHBoxLayout()
+        self.lbl_active_group = QLabel()
+        self.combo_active_group = QComboBox()
+        self.combo_active_group.addItem("Free Mode (No List)", None)
+        active_layout.addWidget(self.lbl_active_group)
+        active_layout.addWidget(self.combo_active_group, 1)
+        contestant_layout.addLayout(active_layout)
+
+        layout.addWidget(self.grp_contestants)
         layout.addStretch()
 
         self.btn_next = QPushButton()
@@ -125,9 +213,71 @@ class SetupWizard(QWidget):
         self.btn_next.clicked.connect(self.go_to_page2)
         self.btn_next.setStyleSheet("background-color: #3498db; color: white; border-radius: 5px; font-weight: bold;")
         layout.addWidget(self.btn_next)
+
         return page
 
+    # --- 名单管理逻辑 ---
+    def add_group(self):
+        name, ok = QInputDialog.getText(self, i18n.tr("btn_add_group"), i18n.tr("placeholder_group_name"))
+        if ok and name.strip():
+            key = name.strip()
+            if key in self.groups_data: return
+            self.groups_data[key] = []
+            self.list_groups.addItem(key)
+            self.list_groups.setCurrentRow(self.list_groups.count() - 1)
+            self.refresh_active_combo()
+
+    def del_group(self):
+        row = self.list_groups.currentRow()
+        if row < 0: return
+        item = self.list_groups.takeItem(row)
+        key = item.text()
+        if key in self.groups_data:
+            del self.groups_data[key]
+        self.refresh_active_combo()
+        if self.list_groups.count() == 0:
+            self.txt_names.clear()
+            self.txt_names.setEnabled(False)
+
+    def on_group_selected(self, current, previous):
+        if not current:
+            self.txt_names.clear()
+            self.txt_names.setEnabled(False)
+            return
+
+        key = current.text()
+        self.txt_names.setEnabled(True)
+        # Load names
+        names = self.groups_data.get(key, [])
+        self.txt_names.setPlainText("\n".join(names))
+
+    def save_current_group_names(self):
+        current = self.list_groups.currentItem()
+        if not current: return
+        key = current.text()
+        text = self.txt_names.toPlainText()
+        # Filter empty lines
+        names = [line.strip() for line in text.split('\n') if line.strip()]
+        self.groups_data[key] = names
+
+    def refresh_active_combo(self):
+        curr_data = self.combo_active_group.currentData()
+        self.combo_active_group.clear()
+        self.combo_active_group.addItem(i18n.tr("val_free_mode"), None)
+
+        for grp in self.groups_data.keys():
+            self.combo_active_group.addItem(grp, grp)
+
+        # Try restore selection
+        idx = self.combo_active_group.findData(curr_data)
+        if idx >= 0:
+            self.combo_active_group.setCurrentIndex(idx)
+        else:
+            self.combo_active_group.setCurrentIndex(0)  # Default to free mode
+
     def create_page2(self):
+        # ... 保持不变，代码略 ...
+        # 为了完整性，这里复制了原有的 create_page2 代码
         page = QWidget()
         layout = QVBoxLayout(page)
 
@@ -167,6 +317,16 @@ class SetupWizard(QWidget):
         self.rb_single.setText(i18n.tr("mode_single_player"))
         self.rb_multi.setText(i18n.tr("mode_multi_player"))
         self.lbl_ref_count.setText(i18n.tr("lbl_ref_count"))
+
+        # New
+        self.grp_contestants.setTitle(i18n.tr("grp_contestants"))
+        self.lbl_group_list.setText(i18n.tr("lbl_group_list"))
+        self.btn_add_group.setText(i18n.tr("btn_add_group"))
+        self.btn_del_group.setText(i18n.tr("btn_del_group"))
+        self.lbl_names_edit.setText(i18n.tr("lbl_names_edit"))
+        self.lbl_active_group.setText(i18n.tr("lbl_active_group"))
+        self.combo_active_group.setItemText(0, i18n.tr("val_free_mode"))
+
         self.btn_next.setText(i18n.tr("btn_next"))
         self.btn_rescan.setText(i18n.tr("btn_rescan"))
         self.btn_finish.setText(i18n.tr("btn_finish"))
@@ -192,10 +352,22 @@ class SetupWizard(QWidget):
         self.project_name = self.input_proj_name.text() or "Match"
         count = self.spin_ref_count.value() if self.rb_multi.isChecked() else 1
         self.generate_referee_cards(count)
+
+        # 如果有暂存的配置（恢复模式），应用到卡片上
+        if self._pending_ref_configs:
+            for i, card in enumerate(self.ref_cards):
+                if i < len(self._pending_ref_configs):
+                    prev = self._pending_ref_configs[i]
+                    # 恢复 Single/Dual 模式
+                    mode_idx = card.combo_mode.findData(prev.get("mode", "SINGLE"))
+                    if mode_idx >= 0:
+                        card.combo_mode.setCurrentIndex(mode_idx)
+                    # 无法恢复具体的 Device 对象（因为需要扫描），但可以考虑显示上次的地址提示用户
+                    # 这里暂略，仅恢复结构
+
         self.stack.setCurrentIndex(1)
         self.lbl_title.setText(i18n.tr("wiz_p2_title"))
         self.start_scan()
-
     def generate_referee_cards(self, count):
         while self.cards_layout.count() > 1:
             child = self.cards_layout.takeAt(0)
@@ -258,11 +430,20 @@ class SetupWizard(QWidget):
             ref = card.get_configured_referee()
             final_referees.append(ref)
 
+        # 准备 Tournament Data
+        active_group = self.combo_active_group.currentData()
+        tournament_data = {
+            "groups": self.groups_data,
+            "active_group": active_group
+        }
+
         self.stop_scan_safe()
         self.lbl_error_msg.setText("")
-        self.setup_finished.emit(self.project_name, final_referees)
+        # 发送信号
+        self.setup_finished.emit(self.project_name, final_referees, tournament_data)
 
 
+# RefereeConfigCard 类保持不变...
 class RefereeConfigCard(QGroupBox):
     def __init__(self, index):
         super().__init__()

@@ -13,27 +13,22 @@ class I18nManager(QObject):
         self.translations = {
             "zh": {
                 "app_title": "电子计分系统 PC端",
-                # ... 菜单 ...
+                # ... 现有词条 ...
                 "menu_settings": "设置",
                 "menu_language": "语言选择",
-                "menu_preferences": "偏好设置...",  # 【新增】
+                "menu_preferences": "偏好设置...",
                 "menu_help": "帮助",
                 "menu_project": "项目",
-
-                # ... 偏好设置对话框 ...
                 "prefs_title": "偏好设置",
                 "tab_shortcuts": "快捷键设置",
                 "lbl_reset_all_shortcut": "全局重置(清零)快捷键:",
-
-                # ... 通用按钮 ...
                 "btn_save": "保存",
                 "btn_cancel": "取消",
-
-                # ... 原有其他翻译保持不变 ...
                 "home_new_project": "新建计分项目",
+                "home_open_project": "打开已有项目",  # 新增
                 "btn_back": "返回",
                 "btn_next": "下一步",
-                "btn_finish": "完成配置",
+                "btn_finish": "开始比赛",  # 修改文案更贴切
                 "btn_rescan": "重新扫描",
                 "wiz_p1_title": "步骤 1/2: 项目设置",
                 "lbl_proj_name": "项目名称:",
@@ -63,7 +58,7 @@ class I18nManager(QObject):
                 "status_disconnected": "已断开",
                 "device_primary": "主设备",
                 "device_secondary": "副设备",
-                "btn_stop_match": "结束比赛 / 返回首页",
+                "btn_stop_match": "返回上一级", # 修改文案
                 "msg_duplicate_dev": "错误：设备 {} 被重复选择！",
                 "msg_select_all": "请为所有启用的位置选择设备！",
                 "dash_title": "实时计分看板",
@@ -72,30 +67,48 @@ class I18nManager(QObject):
                 "lbl_window_list": "当前活动窗口列表:",
                 "btn_confirm_overlay": "进入悬浮模式",
                 "btn_exit_overlay": "退出悬浮 (还原)",
-                "overlay_ref_format": "裁判{}: 总{} (+{} / -{})"
+                "overlay_ref_format": "裁判{}: 总{} (+{} / -{})",
+                "grp_contestants": "参赛名单配置 (可选)",
+                "btn_add_group": "新建组别",
+                "btn_del_group": "删除组别",
+                "lbl_group_list": "组别列表:",
+                "lbl_names_edit": "选手名单 (每行一个):",
+                "lbl_active_group": "当前生效组别:",
+                "placeholder_group_name": "组别名称",
+                "default_group_name": "默认组",
+                "msg_confirm_del_group": "确定要删除该组别吗？",
+                "lbl_curr_group": "组别",
+                "lbl_curr_player": "选手",
+                "btn_prev_player": "<< 上一位",
+                "btn_next_player": "下一位 >>",
+                "chk_auto_next": "连赛模式 (清零自动切换下一位)",
+                "msg_save_result": "已记录成绩: {} - {}分",
+                "header_result_csv": "组别,选手,总分,裁判详情,时间",
+                "val_free_mode": "自由模式 (无名单)",
+                "status_match_ongoing": "比赛中",
+                "title_open_project": "选择历史项目",
+                "lbl_no_projects": "暂无历史项目记录",
+                "col_proj_name": "项目名称",
+                "col_create_time": "创建时间",
+                "btn_open": "打开"
             },
             "en": {
                 "app_title": "Electronic Clicker System",
-                # ... Menus ...
                 "menu_settings": "Settings",
                 "menu_language": "Language",
-                "menu_preferences": "Preferences...",  # 【New】
+                "menu_preferences": "Preferences...",
                 "menu_help": "Help",
                 "menu_project": "Project",
-
-                # ... Preferences Dialog ...
-                "prefs_title": "Preferences",  # 【New】
-                "tab_shortcuts": "Shortcuts",  # 【New】
-                "lbl_reset_all_shortcut": "Global Reset Shortcut:",  # 【New】
-
+                "prefs_title": "Preferences",
+                "tab_shortcuts": "Shortcuts",
+                "lbl_reset_all_shortcut": "Global Reset Shortcut:",
                 "btn_save": "Save",
                 "btn_cancel": "Cancel",
-
-                # ... (Keep existing translations) ...
                 "home_new_project": "New Scoring Project",
+                "home_open_project": "Open Existing Project", # New
                 "btn_back": "Back",
                 "btn_next": "Next",
-                "btn_finish": "Finish",
+                "btn_finish": "Start Match",
                 "btn_rescan": "Rescan",
                 "wiz_p1_title": "Step 1/2: Project Settings",
                 "lbl_proj_name": "Project Name:",
@@ -125,7 +138,7 @@ class I18nManager(QObject):
                 "status_disconnected": "Disconnected",
                 "device_primary": "Primary",
                 "device_secondary": "Secondary",
-                "btn_stop_match": "End Match / Back to Home",
+                "btn_stop_match": "Back", # Changed
                 "msg_duplicate_dev": "Error: Device {} is selected multiple times!",
                 "msg_select_all": "Please select devices for all slots!",
                 "dash_title": "Live Scoreboard",
@@ -134,7 +147,30 @@ class I18nManager(QObject):
                 "lbl_window_list": "Active Windows:",
                 "btn_confirm_overlay": "Start Overlay",
                 "btn_exit_overlay": "Exit Overlay (Restore)",
-                "overlay_ref_format": "Ref{}: T{} (+{} / -{})"
+                "overlay_ref_format": "Ref{}: T{} (+{} / -{})",
+                "grp_contestants": "Contestant List (Optional)",
+                "btn_add_group": "New Group",
+                "btn_del_group": "Delete",
+                "lbl_group_list": "Groups:",
+                "lbl_names_edit": "Contestants (One per line):",
+                "lbl_active_group": "Active Group:",
+                "placeholder_group_name": "Group Name",
+                "default_group_name": "Default Group",
+                "msg_confirm_del_group": "Delete this group?",
+                "lbl_curr_group": "Group",
+                "lbl_curr_player": "Player",
+                "btn_prev_player": "<< Prev",
+                "btn_next_player": "Next >>",
+                "chk_auto_next": "Auto-Switch (Next on Reset)",
+                "msg_save_result": "Result Saved: {} - {} pts",
+                "header_result_csv": "Group,Contestant,TotalScore,RefDetails,Time",
+                "val_free_mode": "Free Mode (No List)",
+                "status_match_ongoing": "Match Ongoing",
+                "title_open_project": "Select Project",
+                "lbl_no_projects": "No history found.",
+                "col_proj_name": "Project Name",
+                "col_create_time": "Created At",
+                "btn_open": "Open"
             }
         }
 
