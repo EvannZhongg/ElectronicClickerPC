@@ -4,7 +4,7 @@ from bleak import BleakScanner
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QRadioButton, QSpinBox, QButtonGroup,
                              QPushButton, QStackedWidget, QComboBox, QFormLayout,
-                             QScrollArea, QGroupBox)  # 移除 QMessageBox
+                             QScrollArea, QGroupBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from logic.referee import Referee
 from core.device_node import DeviceNode
@@ -23,11 +23,32 @@ class SetupWizard(QWidget):
         self.scanned_devices = []
         self.is_scanning = False
         self.scan_task = None
+        self.ref_cards = []  # 确保初始化
 
         self.init_ui()
         i18n.language_changed.connect(self.retranslate_ui)
 
+    # --- 【新增】重置方法 ---
+    def reset(self):
+        """重置向导到初始状态"""
+        # 1. 停止可能的扫描
+        self.stop_scan_safe()
+
+        # 2. 切回第一页
+        self.stack.setCurrentIndex(0)
+
+        # 3. 重置控件状态
+        self.input_proj_name.setText("My Match")
+        self.rb_single.setChecked(True)
+        self.spin_ref_count.setValue(2)
+        self.spin_ref_count.setEnabled(False)
+        self.lbl_error_msg.setText("")
+
+        # 4. 更新标题
+        self.lbl_title.setText(i18n.tr("wiz_p1_title"))
+
     def init_ui(self):
+        # ... (保持不变)
         self.main_layout = QVBoxLayout(self)
 
         # 导航栏
@@ -54,7 +75,7 @@ class SetupWizard(QWidget):
         self.stack.addWidget(self.page2)
         self.main_layout.addWidget(self.stack)
 
-        # --- 新增：全局错误提示 Label (替代 QMessageBox) ---
+        # 全局错误提示 Label
         self.lbl_error_msg = QLabel("")
         self.lbl_error_msg.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
         self.lbl_error_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -63,17 +84,8 @@ class SetupWizard(QWidget):
         self.retranslate_ui()
 
     def show_error(self, msg):
-        """显示非阻塞的错误信息"""
         self.lbl_error_msg.setText(msg)
-        # 3秒后自动清除
         asyncio.get_event_loop().call_later(3, lambda: self.lbl_error_msg.setText(""))
-
-    # ... (create_page1, create_page2 保持不变，请直接使用之前的代码) ...
-    # ... 请确保 create_page1 和 create_page2 代码存在 ...
-
-    # 需要补充 create_page1 和 create_page2 的代码以保证完整性，
-    # 但为了篇幅，我假设你保留了之前的 UI 构建代码，重点是逻辑修改。
-    # 这里为了防错，重新提供这两个方法：
 
     def create_page1(self):
         page = QWidget()
@@ -146,11 +158,7 @@ class SetupWizard(QWidget):
         layout.addWidget(self.btn_finish)
         return page
 
-    # ... (retranslate_ui, on_nav_back, on_mode_changed, go_to_page2, generate_referee_cards 保持不变) ...
-    # ... 请直接复用之前的代码 ...
-
     def retranslate_ui(self):
-        # 简单重写以确保完整
         self.btn_nav_back.setText(i18n.tr("btn_back"))
         is_p1 = self.stack.currentIndex() == 0
         self.lbl_title.setText(i18n.tr("wiz_p1_title") if is_p1 else i18n.tr("wiz_p2_title"))
@@ -169,7 +177,7 @@ class SetupWizard(QWidget):
 
     def on_nav_back(self):
         self.stop_scan_safe()
-        self.lbl_error_msg.setText("")  # 清除错误
+        self.lbl_error_msg.setText("")
         if self.stack.currentIndex() == 1:
             self.stack.setCurrentIndex(0)
             self.lbl_title.setText(i18n.tr("wiz_p1_title"))
@@ -226,7 +234,6 @@ class SetupWizard(QWidget):
             self.btn_rescan.setEnabled(True)
 
     def on_finish(self):
-        # --- 这里的修改：移除 QMessageBox，改用 show_error ---
         final_referees = []
         used_addresses = set()
 
@@ -252,13 +259,11 @@ class SetupWizard(QWidget):
             final_referees.append(ref)
 
         self.stop_scan_safe()
-        self.lbl_error_msg.setText("")  # 成功则清除错误
+        self.lbl_error_msg.setText("")
         self.setup_finished.emit(self.project_name, final_referees)
 
 
-# RefereeConfigCard 类保持不变，请确保它存在
 class RefereeConfigCard(QGroupBox):
-    # ... (与之前代码完全一致，无需修改) ...
     def __init__(self, index):
         super().__init__()
         self.index = index
@@ -342,18 +347,13 @@ class RefereeConfigCard(QGroupBox):
     def get_configured_referee(self):
         name = f"{i18n.tr('referee_name')} {self.index}"
         mode = self.combo_mode.currentData()
-
-        # 【修改】传入 self.index
         ref = Referee(self.index, name, mode)
-
         d_pri = self.combo_pri.currentData()
         node_pri = DeviceNode(d_pri)
-
         node_sec = None
         if mode == "DUAL":
             d_sec = self.combo_sec.currentData()
             if d_sec:
                 node_sec = DeviceNode(d_sec)
-
         ref.set_devices(primary=node_pri, secondary=node_sec)
         return ref

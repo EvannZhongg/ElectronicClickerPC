@@ -1,5 +1,5 @@
 # ui/score_panel.py
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QHBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QLabel, QHBoxLayout, QWidget, QPushButton
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from utils.i18n import i18n
@@ -55,6 +55,40 @@ class ScorePanel(QFrame):
         self.lbl_detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail.setStyleSheet("color: #7f8c8d; font-size: 14px;")
 
+        # --- 【新增】重置按钮区 ---
+        # 使用一个容器让按钮居中，并稍微与其他元素隔开
+        btn_container = QWidget()
+        btn_layout = QHBoxLayout(btn_container)
+        btn_layout.setContentsMargins(0, 8, 0, 8)  # 上下增加一点间距
+
+        self.btn_reset = QPushButton("RESET")
+        self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reset.setFixedSize(80, 24)  # 固定大小，避免太占空间
+        self.btn_reset.setStyleSheet("""
+            QPushButton {
+                background-color: #ecf0f1; 
+                color: #7f8c8d; 
+                border: 1px solid #bdc3c7; 
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e74c3c;
+                color: white;
+                border: 1px solid #c0392b;
+            }
+            QPushButton:pressed {
+                background-color: #c0392b;
+            }
+        """)
+        # 连接到 Referee 的逻辑层 (确保 referee.py 中已实现 request_reset)
+        self.btn_reset.clicked.connect(self.referee.request_reset)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_reset)
+        btn_layout.addStretch()
+
         # --- 状态区 (改为容器) ---
         status_container = QWidget()
         status_layout = QVBoxLayout(status_container)
@@ -74,9 +108,11 @@ class ScorePanel(QFrame):
         status_layout.addWidget(self.lbl_status_pri)
         status_layout.addWidget(self.lbl_status_sec)
 
+        # 组装布局
         layout.addWidget(self.lbl_name)
         layout.addWidget(self.lbl_score)
         layout.addWidget(self.lbl_detail)
+        layout.addWidget(btn_container)  # 插入按钮
         layout.addWidget(status_container)
 
         self.setLayout(layout)
@@ -91,6 +127,9 @@ class ScorePanel(QFrame):
         p_str = i18n.tr("score_plus")
         m_str = i18n.tr("score_minus")
         self.lbl_detail.setText(f"{p_str}: {self.curr_plus} | {m_str}: {self.curr_minus}")
+
+        # 更新按钮文本
+        self.btn_reset.setText("RESET 0")
 
         # 刷新默认状态文本
         if not self.referee.primary_device or not self.referee.primary_device.is_connected:

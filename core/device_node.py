@@ -20,7 +20,7 @@ class DeviceNode(QObject):
     async def connect(self):
         self.status_changed.emit("Connecting...")
         try:
-            # 【关键修改】在构造时直接传入断开回调，避免 Attribute 错误
+            # 构造时传入断开回调
             self.client = BleakClient(
                 self.ble_device,
                 disconnected_callback=self._on_disconnected
@@ -35,15 +35,40 @@ class DeviceNode(QObject):
         except Exception as e:
             self.is_connected = False
             self.status_changed.emit(f"Conn Error: {str(e)}")
+            # 连接失败时，确保清理 client 对象，防止后续 disconnect 误判
+            self.client = None
 
     def _on_disconnected(self, client):
         # 回调：连接断开
         self.is_connected = False
         self.status_changed.emit("Disconnected")
 
+    # 【修复点】增强的 disconnect 方法
     async def disconnect(self):
         if self.client:
-            await self.client.disconnect()
+            try:
+                # 只有当 Bleak 认为已连接时才尝试断开，且捕获所有异常
+                if self.client.is_connected:
+                    await self.client.disconnect()
+            except Exception as e:
+                # 忽略断开过程中的错误（例如 AssertionError），只打印日志
+                print(f"Disconnect ignored error: {e}")
+            finally:
+                # 无论是否报错，都强制清理引用
+                self.client = None
+                self.is_connected = False
+
+    async def send_reset_command(self):
+        """向 ESP32 发送重置信号 (0x01)"""
+        if not self.client or not self.is_connected:
+            print("Device not connected, cannot reset.")
+            return
+
+        try:
+            await self.client.write_gatt_char(CHARACTERISTIC_UUID, b'\x01', response=True)
+            print(f"Reset command sent to {self.ble_device.name}")
+        except Exception as e:
+            print(f"Failed to send reset command: {e}")
 
     def _notification_handler(self, sender, data):
         """运行在蓝牙后台线程，只负责转发信号"""
