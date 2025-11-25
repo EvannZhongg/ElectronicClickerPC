@@ -342,12 +342,18 @@ class RefereeConfigCard(QGroupBox):
     def get_configured_referee(self):
         name = f"{i18n.tr('referee_name')} {self.index}"
         mode = self.combo_mode.currentData()
-        ref = Referee(name, mode)
+
+        # 【修改】传入 self.index
+        ref = Referee(self.index, name, mode)
+
         d_pri = self.combo_pri.currentData()
         node_pri = DeviceNode(d_pri)
+
         node_sec = None
         if mode == "DUAL":
             d_sec = self.combo_sec.currentData()
-            if d_sec: node_sec = DeviceNode(d_sec)
+            if d_sec:
+                node_sec = DeviceNode(d_sec)
+
         ref.set_devices(primary=node_pri, secondary=node_sec)
         return ref

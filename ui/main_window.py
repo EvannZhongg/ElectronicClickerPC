@@ -10,7 +10,7 @@ from ui.setup_wizard import SetupWizard
 from ui.score_panel import ScorePanel
 from ui.window_selector import WindowSelectorDialog
 from ui.overlay_window import OverlayWindow
-
+from utils.storage import storage
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -108,11 +108,38 @@ class MainWindow(QMainWindow):
         self.project_name = project_name
         self.referees = referees
 
+        # --- 【新增】项目保存逻辑 ---
+        try:
+            referees_config = []
+            for ref in referees:
+                # 提取设备 MAC 地址用于记录
+                pri_addr = ref.primary_device.ble_device.address if ref.primary_device else "N/A"
+                sec_addr = "N/A"
+                if ref.secondary_device:
+                    sec_addr = ref.secondary_device.ble_device.address
+
+                ref_data = {
+                    "index": ref.index,
+                    "name": ref.name,
+                    "mode": ref.mode,
+                    "primary_device": pri_addr,
+                    "secondary_device": sec_addr
+                }
+                referees_config.append(ref_data)
+
+            # 创建文件夹和配置文件
+            storage.create_project(project_name, referees_config)
+
+        except Exception as e:
+            print(f"Storage Init Failed: {e}")
+
+        # --- (以下保持原有逻辑) ---
+
         self.update_texts()
         self.setup_dashboard()
         self.stack.setCurrentIndex(2)
 
-        # 【核心修复】延迟 500ms 连接，防止与停止扫描的后台任务冲突导致崩溃
+        # 延迟 500ms 连接
         QTimer.singleShot(500, self.connect_devices)
 
     def setup_dashboard(self):
