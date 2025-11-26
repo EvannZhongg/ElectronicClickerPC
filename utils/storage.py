@@ -6,6 +6,7 @@ from datetime import datetime
 
 
 class ProjectStorage:
+    # ... (前部分保持不变) ...
     def __init__(self, base_dir="projects"):
         self.base_dir = os.path.join(os.getcwd(), base_dir)
         if not os.path.exists(self.base_dir):
@@ -13,7 +14,6 @@ class ProjectStorage:
         self.current_project_path = None
 
     def create_project(self, project_name, referees_data, tournament_data=None):
-        """新建项目：创建新文件夹"""
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_name = "".join([c for c in project_name if c.isalnum() or c in (' ', '_', '-')]).strip()
         folder_name = f"{timestamp_str}_{safe_name}"
@@ -35,13 +35,10 @@ class ProjectStorage:
         return self.current_project_path
 
     def update_project_config(self, project_name, referees_data, tournament_data=None):
-        """【新增】更新项目：在当前文件夹更新配置，不新建文件夹"""
         if not self.current_project_path or not os.path.exists(self.current_project_path):
-            # 如果路径丢失，降级为新建
             print("Warning: Project path lost, creating new instead.")
             return self.create_project(project_name, referees_data, tournament_data)
 
-        # 尝试读取旧配置以保留创建时间
         created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         json_path = os.path.join(self.current_project_path, "config.json")
         if os.path.exists(json_path):
@@ -55,15 +52,13 @@ class ProjectStorage:
         config = {
             "project_name": project_name,
             "created_at": created_at,
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),  # 记录更新时间
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "referees": referees_data,
             "tournament_data": tournament_data or {}
         }
 
         self._write_config(config)
-        # 补充可能缺失的 CSV (例如用户在旧项目中增加了新的裁判)
         self._init_all_csvs(referees_data)
-
         print(f"Project updated: {self.current_project_path}")
         return self.current_project_path
 
@@ -74,7 +69,6 @@ class ProjectStorage:
             json.dump(config, f, indent=4, ensure_ascii=False)
 
     def _init_all_csvs(self, referees_data):
-        """初始化所有必要的CSV文件，如果已存在则跳过"""
         for ref in referees_data:
             csv_path = os.path.join(self.current_project_path, f"referee_{ref['index']}.csv")
             if not os.path.exists(csv_path):
@@ -127,11 +121,37 @@ class ProjectStorage:
         except Exception as e:
             print(f"Save Result Error: {e}")
 
+    # --- 新增方法 ---
+    def get_existing_contestants(self):
+        """
+        扫描当前项目下所有 referee_*.csv，返回有过记录的选手名称集合。
+        只要选手出现在 CSV 中（说明接收过 BLE 数据），即视为已打分。
+        """
+        scored_set = set()
+        if not self.current_project_path:
+            return scored_set
+
+        # 遍历目录下所有 referee_ 开头的 csv
+        try:
+            files = os.listdir(self.current_project_path)
+            for file in files:
+                if file.startswith("referee_") and file.endswith(".csv"):
+                    path = os.path.join(self.current_project_path, file)
+                    with open(path, 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            name = row.get("Contestant", "").strip()
+                            if name:
+                                scored_set.add(name)
+        except Exception as e:
+            print(f"Error scanning logs: {e}")
+
+        return scored_set
+
+    # ... (list_projects 等保持不变) ...
     def list_projects(self):
         projects = []
-        if not os.path.exists(self.base_dir):
-            return projects
-
+        if not os.path.exists(self.base_dir): return projects
         for folder in os.listdir(self.base_dir):
             folder_path = os.path.join(self.base_dir, folder)
             config_path = os.path.join(folder_path, "config.json")

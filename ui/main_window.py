@@ -32,7 +32,10 @@ class MainWindow(QMainWindow):
         self.tournament_data = {}
         self.active_group_name = None
         self.contestants = []
-        self.current_idx = 0
+        self.current_idx = -1
+
+        # 内存中维护已打分（即接收过 BLE 数据）的选手集合
+        self.scored_contestants = set()
 
         # 全局快捷键
         saved_shortcut = app_settings.get("reset_shortcut")
@@ -119,31 +122,24 @@ class MainWindow(QMainWindow):
                 self.btn_reset_all.setText(f"⚠ RESET ALL ({new_shortcut})")
         self.prefs_dialog = None
 
-    # --- 流程控制 ---
-
     def start_new_project(self):
-        """从首页点击新建"""
-        # 【关键修正】清除之前的项目路径状态，确保是全新的开始
         storage.current_project_path = None
-
-        self.wizard_page.reset()  # 彻底重置
+        self.scored_contestants.clear()
+        self.wizard_page.reset()
         self.stack.setCurrentIndex(1)
         self.go_to_wizard_page1()
 
     def open_existing_project(self, folder_name):
-        """从首页点击打开已有"""
         storage.set_current_project(folder_name)
         data = storage.load_project_config(folder_name)
         if data:
-            self.wizard_page.restore_state(data)  # 恢复数据
+            self.wizard_page.restore_state(data)
             self.stack.setCurrentIndex(1)
-            # 恢复后停留在 Page 1 让用户确认
             self.go_to_wizard_page1()
         else:
             QMessageBox.warning(self, "Error", "Failed to load project config.")
 
     def go_to_home(self):
-        """Wizard 的 Back 信号触发"""
         self.stack.setCurrentIndex(0)
         self.project_name = ""
         self.update_texts()
@@ -153,7 +149,6 @@ class MainWindow(QMainWindow):
         self.wizard_page.lbl_title.setText(i18n.tr("wiz_p1_title"))
 
     def back_from_dashboard(self):
-        """逐层返回：从 Dashboard 返回到 Wizard Page 2 (设备连接页)"""
         self.close_overlay_if_active()
         self.disconnect_all_devices()
         self.stack.setCurrentIndex(1)
@@ -171,9 +166,9 @@ class MainWindow(QMainWindow):
             self.contestants = tournament_data["groups"][self.active_group_name]
         else:
             self.contestants = []
-        self.current_idx = 0
 
-        # 保存/更新配置
+        self.current_idx = -1
+
         try:
             referees_config = []
             for ref in referees:
@@ -185,24 +180,36 @@ class MainWindow(QMainWindow):
                             "secondary_device": sec_addr}
                 referees_config.append(ref_data)
 
-            # 【关键修正】根据当前是否已有路径，决定是新建还是更新
             if not storage.current_project_path:
                 storage.create_project(project_name, referees_config, tournament_data)
+                self.scored_contestants.clear()
             else:
-                # 已经是已有项目，仅更新配置，不新建文件夹
                 storage.update_project_config(project_name, referees_config, tournament_data)
+                self.scored_contestants = storage.get_existing_contestants()
 
         except Exception as e:
             print(f"Storage Init Failed: {e}")
 
         self.setup_dashboard()
-        self.load_contestant(0)
+
+        initial_idx = 0
+        found_unscored = False
+        if self.contestants:
+            for i, name in enumerate(self.contestants):
+                if name not in self.scored_contestants:
+                    initial_idx = i
+                    found_unscored = True
+                    break
+
+            if not found_unscored and len(self.contestants) > 0:
+                QMessageBox.warning(self, i18n.tr("title_warning"), i18n.tr("msg_all_contestants_scored"))
+
+        self.load_contestant(initial_idx)
         self.update_texts()
-        self.stack.setCurrentIndex(2)  # Show Dashboard
+        self.stack.setCurrentIndex(2)
         QTimer.singleShot(500, self.connect_devices)
 
     def setup_dashboard(self):
-        # 清除旧的布局
         if self.dashboard_page.layout():
             QWidget().setLayout(self.dashboard_page.layout())
 
@@ -210,7 +217,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        # --- 1. Top Bar ---
+        # Top Bar
         top_bar = QWidget()
         top_bar.setStyleSheet("background-color: #2c3e50; border-bottom: 1px solid #1a252f;")
         top_bar.setFixedHeight(60)
@@ -237,10 +244,9 @@ class MainWindow(QMainWindow):
         top_layout.addStretch()
         top_layout.addWidget(self.lbl_title_dash)
         top_layout.addStretch()
-
         main_layout.addWidget(top_bar)
 
-        # --- 2. Control Bar ---
+        # Control Bar
         control_bar = QFrame()
         control_bar.setStyleSheet("background-color: #34495e; border-bottom: 1px solid #2c3e50;")
         control_bar.setFixedHeight(70)
@@ -277,7 +283,6 @@ class MainWindow(QMainWindow):
         self.btn_next.setStyleSheet(btn_style)
         self.btn_next.clicked.connect(lambda: self.switch_contestant(1))
 
-        # Toggle Button Style Checkbox
         self.chk_auto_next = QPushButton(i18n.tr("chk_auto_next"))
         self.chk_auto_next.setCheckable(True)
         self.chk_auto_next.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -326,7 +331,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(control_bar)
 
-        # --- 3. Score Panels ---
+        # Score Panels
         content_widget = QWidget()
         content_widget.setStyleSheet("background-color: transparent;")
         grid_layout = QGridLayout(content_widget)
@@ -339,26 +344,72 @@ class MainWindow(QMainWindow):
         for ref in self.referees:
             panel = ScorePanel(ref)
             grid_layout.addWidget(panel, row, col)
+            ref.score_updated.connect(self.on_score_received_for_tracking)
             col += 1
             if col >= max_cols: col = 0; row += 1
         main_layout.addWidget(content_widget)
         main_layout.addStretch()
 
-    def load_contestant(self, idx):
+    def on_score_received_for_tracking(self):
+        if self.contestants and 0 <= self.current_idx < len(self.contestants):
+            current_name = self.contestants[self.current_idx]
+            if current_name not in self.scored_contestants:
+                print(f"Marking {current_name} as scored.")
+                self.scored_contestants.add(current_name)
+
+    def load_contestant(self, idx, force=False):
+        """
+        加载指定索引的选手，包含重复检查和设备重置。
+        """
         if not self.contestants: return
+
+        # 确保索引合法
         if 0 <= idx < len(self.contestants):
+            target_name = self.contestants[idx]
+
+            # 1. 检查是否重复打分 (非强制加载且目标已在记录中)
+            # 注意：idx != self.current_idx 判断是防止点击“当前人”也触发弹窗
+            # 但初始化时 current_idx = -1，所以如果第0人已打分，也会触发检查，符合逻辑。
+            if not force and idx != self.current_idx and target_name in self.scored_contestants:
+                reply = QMessageBox.question(
+                    self,
+                    i18n.tr("title_scored"),
+                    i18n.tr("msg_contestant_scored", target_name),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    # 用户取消跳转，UI 恢复显示当前选手
+                    self.combo_players.blockSignals(True)
+                    # 恢复到原来的位置，如果原来是 -1 (还没选人)，那就保持 -1 或者强行选一个？
+                    # 这种情况下通常保持原样即可。但 ComboBox 可能已经变了，需要变回来。
+                    restore_idx = self.current_idx if self.current_idx >= 0 else 0
+                    self.combo_players.setCurrentIndex(restore_idx)
+                    self.combo_players.blockSignals(False)
+                    return  # 中止切换
+
+            # 2. 执行切换
             self.current_idx = idx
-            name = self.contestants[idx]
             self.combo_players.setCurrentIndex(idx)
             for ref in self.referees:
-                ref.set_contestant(name)
+                ref.set_contestant(target_name)
             if self.overlay:
-                self.overlay.update_title(name)
+                self.overlay.update_title(target_name)
+
+            # 3. 切换成功，发送重置信号给设备
+            self.reset_devices_only()
 
     def switch_contestant(self, delta):
-        new_idx = self.current_idx + delta
-        if 0 <= new_idx < len(self.contestants):
-            self.load_contestant(new_idx)
+        if not self.contestants: return
+
+        count = len(self.contestants)
+        # 【关键修改】使用取模运算实现循环跳转
+        # (当前索引 + 偏移量) % 总数
+        # 例如 3人(0,1,2)，当前2，delta=1 -> (2+1)%3 = 0 (回到A)
+        # 当前0，delta=-1 -> (0-1)%3 = 2 (回到C)
+        new_idx = (self.current_idx + delta) % count
+
+        self.load_contestant(new_idx)
 
     def jump_to_contestant(self, idx):
         self.load_contestant(idx)
@@ -373,6 +424,9 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             if is_auto_next:
                 self.save_current_result()
+                # 这里先保存，然后 switch_contestant 会负责 reset devices 和 load next
+                # 注意：switch_contestant 内部调用 load_contestant 会再次 reset devices
+                # 所以这里可以省略显式的 reset，或者为了保险保留也无妨 (Reset指令通常幂等)
                 self.reset_devices_only()
                 self.switch_contestant(1)
             else:
@@ -393,6 +447,7 @@ class MainWindow(QMainWindow):
         for ref in self.referees:
             ref.request_reset()
 
+    # ... (Overlay/Connection 保持不变) ...
     def update_overlay_btn_style(self):
         if self.overlay:
             self.btn_overlay.setText("❌ " + i18n.tr("btn_exit_overlay"))
