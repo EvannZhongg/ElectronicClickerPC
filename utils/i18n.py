@@ -14,18 +14,13 @@ class I18nManager(QObject):
             "zh": {
                 # ... (保留之前所有词条) ...
                 "app_title": "电子计分系统 PC端",
-                "menu_settings": "设置",
-                "menu_language": "语言选择",
-                "menu_preferences": "偏好设置...",
-                "menu_help": "帮助",
-                "menu_project": "项目",
-                "prefs_title": "偏好设置",
-                "tab_shortcuts": "快捷键设置",
-                "lbl_reset_all_shortcut": "全局重置(清零)快捷键:",
-                "btn_save": "保存",
-                "btn_cancel": "取消",
-                "home_new_project": "新建计分项目",
-                "home_open_project": "打开已有项目",
+                "home_new_project": "新建比赛项目",
+                "home_continue_match": "继续比赛",
+                "home_view_report": "查看成绩单",
+                "lbl_history_list": "历史项目记录",
+                "lbl_create_time": "创建时间:",
+                "lbl_last_update": "最后更新:",
+                "msg_select_project": "请先从左侧列表选择一个项目",
                 "btn_back": "返回",
                 "btn_next": "下一步",
                 "btn_finish": "开始比赛",
@@ -53,12 +48,13 @@ class I18nManager(QObject):
                 "score_total": "总分",
                 "score_plus": "正分",
                 "score_minus": "负分",
+                "score_deduction": "重点扣分",
                 "status_waiting": "等待连接...",
                 "status_connected": "已连接",
                 "status_disconnected": "已断开",
                 "device_primary": "主设备",
                 "device_secondary": "副设备",
-                "btn_stop_match": "返回上一级",
+                "btn_stop_match": "返回主页",
                 "msg_duplicate_dev": "错误：设备 {} 被重复选择！",
                 "msg_select_all": "请为所有启用的位置选择设备！",
                 "dash_title": "实时计分看板",
@@ -95,12 +91,30 @@ class I18nManager(QObject):
                 "msg_contestant_scored": "选手【{}】已经完成打分（系统检测到历史记录）。\n\n继续将覆盖/追加该选手的记录，是否确定？",
                 "title_warning": "提醒",
                 "msg_all_contestants_scored": "注意：本组所有选手均已完成打分！\n\n即将回到列表首位，请谨慎操作以免覆盖成绩。",
-
-                # --- 新增 ---
                 "title_reset": "重置确认",
                 "msg_reset_confirm": "确定要执行【归零】操作吗？",
                 "msg_reset_auto_suffix": "\n\n[连赛模式] 将保存当前选手【{}】成绩并切换下一位。",
-                "chk_dont_ask_again": "下次不再提醒"
+                "chk_dont_ask_again": "下次不再提醒",
+                "report_title": "成绩单 & 排名",
+                "col_rank": "排名",
+                "col_contestant": "选手",
+                "col_raw_avg": "原始平均分",
+                "col_scaled_score": "比例得分 ({}%)",
+                "col_deduction": "总扣分",
+                "lbl_tech_ratio": "技术分基准比例 (%):",
+                "btn_recalc": "重新计算",
+                "btn_export_csv": "导出报表",
+                "tab_ranking": "总排名",
+                "tab_raw_data": "原始数据详情",
+
+                # --- Report Page Optimization ---
+                "lbl_filter_group": "选择组别:",
+                "val_all_groups": "全部组别",
+                "col_final_score": "最终得分",
+
+                # 新增
+                "header_col_raw": "原始分",
+                "header_col_scaled": "比例分"
             },
             "en": {
                 # ... (Keep existing) ...
@@ -115,8 +129,14 @@ class I18nManager(QObject):
                 "lbl_reset_all_shortcut": "Global Reset Shortcut:",
                 "btn_save": "Save",
                 "btn_cancel": "Cancel",
-                "home_new_project": "New Scoring Project",
-                "home_open_project": "Open Existing Project",
+                "home_new_project": "New Match",
+                "home_continue_match": "Continue Match",
+                "home_view_report": "View Report",
+                "lbl_history_list": "History Projects",
+                "lbl_project_info": "Project Details",
+                "lbl_create_time": "Created:",
+                "lbl_last_update": "Last Update:",
+                "msg_select_project": "Please select a project from the left list first.",
                 "btn_back": "Back",
                 "btn_next": "Next",
                 "btn_finish": "Start Match",
@@ -144,12 +164,13 @@ class I18nManager(QObject):
                 "score_total": "Total",
                 "score_plus": "Plus",
                 "score_minus": "Minus",
+                "score_deduction": "Major Ded.",
                 "status_waiting": "Waiting...",
                 "status_connected": "Connected",
                 "status_disconnected": "Disconnected",
                 "device_primary": "Primary",
                 "device_secondary": "Secondary",
-                "btn_stop_match": "Back",
+                "btn_stop_match": "Back to Home",
                 "msg_duplicate_dev": "Error: Device {} is selected multiple times!",
                 "msg_select_all": "Please select devices for all slots!",
                 "dash_title": "Live Scoreboard",
@@ -186,12 +207,30 @@ class I18nManager(QObject):
                 "msg_contestant_scored": "Contestant '{}' has already been scored.\n\nContinue to overwrite/append?",
                 "title_warning": "Warning",
                 "msg_all_contestants_scored": "Note: All contestants in this group have been scored!\n\nReturning to the first player. Please proceed with caution.",
-
-                # --- New ---
                 "title_reset": "Reset Confirmation",
                 "msg_reset_confirm": "Are you sure you want to RESET ZERO?",
                 "msg_reset_auto_suffix": "\n\n[Auto-Switch] Will SAVE results for '{}' and switch to NEXT.",
-                "chk_dont_ask_again": "Don't ask me again"
+                "chk_dont_ask_again": "Don't ask me again",
+                "report_title": "Scoreboard & Ranking",
+                "col_rank": "Rank",
+                "col_contestant": "Contestant",
+                "col_raw_avg": "Raw Avg",
+                "col_scaled_score": "Scaled Score ({}%)",
+                "col_deduction": "Ded.",
+                "lbl_tech_ratio": "Tech Ratio (%):",
+                "btn_recalc": "Recalculate",
+                "btn_export_csv": "Export CSV",
+                "tab_ranking": "Ranking",
+                "tab_raw_data": "Raw Details",
+
+                # --- Report Page Optimization ---
+                "lbl_filter_group": "Filter Group:",
+                "val_all_groups": "All Groups",
+                "col_final_score": "Final Score",
+
+                # New
+                "header_col_raw": "Raw",
+                "header_col_scaled": "Scaled"
             }
         }
 

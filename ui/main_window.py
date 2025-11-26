@@ -13,13 +13,14 @@ from ui.setup_wizard import SetupWizard
 from ui.score_panel import ScorePanel
 from ui.window_selector import WindowSelectorDialog
 from ui.overlay_window import OverlayWindow
+from ui.report_page import ReportPage  # [新增] 导入成绩单页面
 from utils.storage import storage
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.resize(1000, 750)
+        self.resize(1100, 800)  # [调整] 稍微调大默认窗口尺寸以适应新布局
         self.setStyleSheet("QMainWindow { background-color: #2b2b2b; }")
 
         # 1. 数据初始化
@@ -50,19 +51,29 @@ class MainWindow(QMainWindow):
         self.init_menu()
         i18n.language_changed.connect(self.update_texts)
 
-        # 4. 页面
+        # 4. 页面初始化
+
+        # Index 0: 主页 (Home)
         self.home_page = HomePage()
         self.home_page.start_project_requested.connect(self.start_new_project)
         self.home_page.open_project_requested.connect(self.open_existing_project)
-        self.stack.addWidget(self.home_page)  # Index 0
+        self.home_page.view_report_requested.connect(self.show_report_page)  # [新增] 连接查看报表信号
+        self.stack.addWidget(self.home_page)
 
+        # Index 1: 设置向导 (Wizard)
         self.wizard_page = SetupWizard()
         self.wizard_page.setup_finished.connect(self.on_setup_finished)
         self.wizard_page.back_to_home_requested.connect(self.go_to_home)
-        self.stack.addWidget(self.wizard_page)  # Index 1
+        self.stack.addWidget(self.wizard_page)
 
+        # Index 2: 计分看板 (Dashboard)
         self.dashboard_page = QWidget()
-        self.stack.addWidget(self.dashboard_page)  # Index 2
+        self.stack.addWidget(self.dashboard_page)
+
+        # Index 3: 成绩单 (Report) [新增]
+        self.report_page = ReportPage()
+        self.report_page.back_requested.connect(self.go_to_home)
+        self.stack.addWidget(self.report_page)
 
         self.stack.setCurrentIndex(0)
         self.update_texts()
@@ -93,15 +104,21 @@ class MainWindow(QMainWindow):
         self.menu_help = self.menu_bar.addMenu("Help")
 
     def update_texts(self):
-        if self.stack.currentIndex() == 2 and self.project_name:
+        # 根据当前页面更新窗口标题
+        idx = self.stack.currentIndex()
+        if idx == 2 and self.project_name:  # Dashboard
             self.setWindowTitle(f"{i18n.tr('app_title')} - {self.project_name}")
+        elif idx == 3:  # Report
+            self.setWindowTitle(f"{i18n.tr('app_title')} - {i18n.tr('report_title')}")
         else:
             self.setWindowTitle(i18n.tr("app_title"))
+
         self.menu_settings.setTitle(i18n.tr("menu_settings"))
         self.menu_lang.setTitle(i18n.tr("menu_language"))
         self.act_preferences.setText(i18n.tr("menu_preferences"))
         self.menu_project.setTitle(i18n.tr("menu_project"))
         self.menu_help.setTitle(i18n.tr("menu_help"))
+
         if self.stack.currentIndex() == 2 and hasattr(self, 'lbl_title_dash'):
             self.lbl_title_dash.setText(f"{i18n.tr('dash_title')} - {self.project_name}")
             self.btn_back_dash.setText(i18n.tr("btn_stop_match"))
@@ -139,9 +156,18 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error", "Failed to load project config.")
 
+    def show_report_page(self, folder_name):
+        """[新增] 显示成绩单页面"""
+        self.report_page.load_project_data(folder_name)
+        self.stack.setCurrentIndex(3)
+        self.update_texts()
+
     def go_to_home(self):
         self.stack.setCurrentIndex(0)
         self.project_name = ""
+        # [新增] 刷新主页列表，以显示可能的最新时间变动
+        if hasattr(self.home_page, "refresh_list"):
+            self.home_page.refresh_list()
         self.update_texts()
 
     def go_to_wizard_page1(self):
@@ -159,7 +185,6 @@ class MainWindow(QMainWindow):
     def on_setup_finished(self, project_name, referees, tournament_data):
         """
         阶段1：接收数据并保存，然后立即返回，将繁重的UI初始化推迟到下一次事件循环。
-        防止在信号处理槽中直接进行复杂的UI销毁/重建导致栈溢出。
         """
         self.project_name = project_name
         self.referees = referees
@@ -173,7 +198,7 @@ class MainWindow(QMainWindow):
 
         self.current_idx = -1
 
-        # 1. 保存/更新配置 (轻量级 IO 操作)
+        # 1. 保存/更新配置
         try:
             referees_config = []
             for ref in referees:
@@ -195,13 +220,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Storage Init Failed: {e}")
 
-        # 2. 【核心修复】推迟执行 UI 初始化逻辑
-        # 使用 QTimer.singleShot(10) 让当前的 signal/slot 调用栈先结束
+        # 2. 推迟执行 UI 初始化逻辑
         QTimer.singleShot(10, self.finalize_setup_ui)
 
     def finalize_setup_ui(self):
         """
-        阶段2：在新的事件循环中构建 Dashboard UI，避免 crash。
+        阶段2：在新的事件循环中构建 Dashboard UI。
         """
         self.setup_dashboard()
 
@@ -215,11 +239,12 @@ class MainWindow(QMainWindow):
                     found_unscored = True
                     break
 
-            # 如果全员已打分，才弹窗提示（此时在独立的事件循环中，弹窗安全）
+            # 如果全员已打分，才弹窗提示
             if not found_unscored and len(self.contestants) > 0:
                 QMessageBox.warning(self, i18n.tr("title_warning"), i18n.tr("msg_all_contestants_scored"))
 
-        self.load_contestant(initial_idx)
+        # 强制加载一次以更新标题
+        self.load_contestant(initial_idx, force=True)
         self.update_texts()
         self.stack.setCurrentIndex(2)
 
@@ -455,10 +480,17 @@ class MainWindow(QMainWindow):
         total_score = 0
         details = []
         for ref in self.referees:
+            # 记录该裁判的当前总分
             score = ref.last_total
             total_score += score
-            details.append(f"{ref.name}:{score}")
+
+            # 【修改点】保存格式改为: "Name=Total:Plus:Minus"
+            # 使用 '=' 分隔名字和数据，':' 分隔数据项，以避免与名字中的空格冲突
+            # 例如: "Referee 1=100:120:20" (总分100，正分120，扣分20)
+            details.append(f"{ref.name}={score}:{ref.last_plus}:{ref.last_minus}")
+
         contestant = self.contestants[self.current_idx]
+        # 使用 ' | ' 作为不同裁判之间的分隔符
         details_str = " | ".join(details)
         storage.save_result(self.active_group_name, contestant, total_score, details_str)
 
@@ -466,7 +498,7 @@ class MainWindow(QMainWindow):
         for ref in self.referees:
             ref.request_reset()
 
-    # ... (Overlay/Connection 保持不变) ...
+    # --- Overlay / Window Selection ---
     def update_overlay_btn_style(self):
         if self.overlay:
             self.btn_overlay.setText("❌ " + i18n.tr("btn_exit_overlay"))

@@ -18,16 +18,17 @@ class SetupWizard(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ref_configs = []
         self.project_name = ""
         self.scanned_devices = []
         self.is_scanning = False
         self.scan_task = None
         self.ref_cards = []
-        self.groups_data = {}
-        self.active_group = None
 
-        # 暂存恢复的裁判配置信息
+        # 数据结构:
+        # groups_data: { "GroupA": ["P1", "P2"] } (兼容旧结构)
+        # groups_config: { "GroupA": {"ref_count": 2} } (新增配置)
+        self.groups_data = {}
+        self.groups_config = {}
         self._pending_ref_configs = []
 
         self.init_ui()
@@ -38,52 +39,63 @@ class SetupWizard(QWidget):
         self.stop_scan_safe()
         self.stack.setCurrentIndex(0)
         self.input_proj_name.setText("My Match")
-        self.rb_single.setChecked(True)
-        self.spin_ref_count.setValue(2)
-        self.spin_ref_count.setEnabled(False)
+
+        # 默认选中自由模式
+        self.rb_mode_free.setChecked(True)
+        self.spin_global_ref_count.setValue(2)
+        self.spin_global_ref_count.setEnabled(True)
+
         self.lbl_error_msg.setText("")
         self.groups_data = {}
+        self.groups_config = {}
         self.list_groups.clear()
         self.txt_names.clear()
-        self.combo_active_group.clear()
-        self.combo_active_group.addItem(i18n.tr("val_free_mode"), None)
+        self.combo_start_group.clear()
+        self.update_ui_state_by_mode()
+
         self._pending_ref_configs = []
         self.lbl_title.setText(i18n.tr("wiz_p1_title"))
 
     def restore_state(self, config_data):
-        """从历史记录恢复状态 (Populate UI)"""
+        """从历史记录恢复状态"""
         self.reset()
 
         # 1. Page 1 基础信息
         self.project_name = config_data.get("project_name", "My Match")
         self.input_proj_name.setText(self.project_name)
 
-        # 2. 裁判数量与模式
+        # 2. 恢复裁判配置缓存 (用于 Page 2)
         refs_data = config_data.get("referees", [])
-        self._pending_ref_configs = refs_data  # 暂存，用于 Page 2 生成卡片时设置模式
+        self._pending_ref_configs = refs_data
 
-        count = len(refs_data)
-        if count > 1:
-            self.rb_multi.setChecked(True)
-            self.spin_ref_count.setValue(count)
-        else:
-            self.rb_single.setChecked(True)
-
-        # 3. 组别名单
+        # 3. 恢复组别和配置
         t_data = config_data.get("tournament_data", {})
         self.groups_data = t_data.get("groups", {})
+        self.groups_config = t_data.get("group_configs", {})  # 读取新字段
+
         active_grp = t_data.get("active_group")
 
-        # 刷新组别列表 UI
-        for grp in self.groups_data.keys():
-            self.list_groups.addItem(grp)
-        self.refresh_active_combo()
+        # 判定模式
+        if not self.groups_data:
+            # 无组别 -> 自由模式
+            self.rb_mode_free.setChecked(True)
+            self.spin_global_ref_count.setValue(len(refs_data) if refs_data else 2)
+        else:
+            # 有组别 -> 赛事模式
+            self.rb_mode_tourn.setChecked(True)
+            for grp in self.groups_data.keys():
+                self.list_groups.addItem(grp)
 
-        # 选中之前的 Active Group
-        idx = self.combo_active_group.findData(active_grp)
-        if idx >= 0:
-            self.combo_active_group.setCurrentIndex(idx)
+            # 刷新下拉框
+            self.refresh_start_group_combo()
 
+            # 选中之前的组
+            if active_grp:
+                idx = self.combo_start_group.findText(active_grp)
+                if idx >= 0:
+                    self.combo_start_group.setCurrentIndex(idx)
+
+        self.update_ui_state_by_mode()
         print("Wizard state restored.")
 
     def init_ui(self):
@@ -127,40 +139,56 @@ class SetupWizard(QWidget):
         page = QWidget()
         layout = QVBoxLayout(page)
 
-        # --- 基本设置 ---
-        form_group = QGroupBox("Basic Settings")
-        form_layout = QFormLayout(form_group)
+        # --- 1. 顶部：模式选择 ---
+        mode_group_box = QGroupBox("Mode Selection")
+        mode_layout = QHBoxLayout(mode_group_box)
+
+        self.rb_mode_free = QRadioButton("Free Mode (Basic)")
+        self.rb_mode_tourn = QRadioButton("Tournament Mode (Groups)")
+        self.rb_mode_free.setChecked(True)
+
+        self.btn_group_mode = QButtonGroup(page)
+        self.btn_group_mode.addButton(self.rb_mode_free, 0)
+        self.btn_group_mode.addButton(self.rb_mode_tourn, 1)
+        self.btn_group_mode.idToggled.connect(self.update_ui_state_by_mode)
+
+        mode_layout.addWidget(self.rb_mode_free)
+        mode_layout.addWidget(self.rb_mode_tourn)
+        layout.addWidget(mode_group_box)
+
+        # --- 2. 基础设置 (Free Mode) ---
+        self.grp_basic = QGroupBox("Basic Settings")
+        form_layout = QFormLayout(self.grp_basic)
 
         self.input_proj_name = QLineEdit("My Match")
         self.lbl_proj_name = QLabel()
         form_layout.addRow(self.lbl_proj_name, self.input_proj_name)
 
-        self.lbl_game_mode = QLabel()
-        self.rb_single = QRadioButton()
-        self.rb_multi = QRadioButton()
-        self.rb_single.setChecked(True)
-        self.mode_group = QButtonGroup(page)
-        self.mode_group.addButton(self.rb_single, 0)
-        self.mode_group.addButton(self.rb_multi, 1)
-        self.mode_group.idToggled.connect(self.on_mode_changed)
-        mode_vbox = QVBoxLayout()
-        mode_vbox.addWidget(self.rb_single)
-        mode_vbox.addWidget(self.rb_multi)
-        form_layout.addRow(self.lbl_game_mode, mode_vbox)
-
         self.lbl_ref_count = QLabel()
-        self.spin_ref_count = QSpinBox()
-        self.spin_ref_count.setRange(2, 10)
-        self.spin_ref_count.setEnabled(False)
-        form_layout.addRow(self.lbl_ref_count, self.spin_ref_count)
+        self.spin_global_ref_count = QSpinBox()
+        self.spin_global_ref_count.setRange(1, 10)
+        self.spin_global_ref_count.setValue(2)
+        form_layout.addRow(self.lbl_ref_count, self.spin_global_ref_count)
 
-        layout.addWidget(form_group)
+        layout.addWidget(self.grp_basic)
 
-        # --- 名单配置区域 (增强部分) ---
+        # --- 3. 赛事配置 (Tournament Mode) ---
         self.grp_contestants = QGroupBox()
         contestant_layout = QVBoxLayout(self.grp_contestants)
 
-        # 上半部分：左右分栏
+        # 工具栏：添加组别
+        tool_layout = QHBoxLayout()
+        self.btn_add_group = QPushButton("+ New Group")
+        self.btn_add_group.clicked.connect(self.add_group_dialog)
+        self.btn_del_group = QPushButton("- Delete")
+        self.btn_del_group.clicked.connect(self.del_group)
+
+        tool_layout.addWidget(self.btn_add_group)
+        tool_layout.addWidget(self.btn_del_group)
+        tool_layout.addStretch()
+        contestant_layout.addLayout(tool_layout)
+
+        # 左右分栏
         h_split = QHBoxLayout()
 
         # 左侧：组别列表
@@ -168,26 +196,31 @@ class SetupWizard(QWidget):
         self.lbl_group_list = QLabel()
         self.list_groups = QListWidget()
         self.list_groups.currentItemChanged.connect(self.on_group_selected)
-
-        btn_box = QHBoxLayout()
-        self.btn_add_group = QPushButton("+")
-        self.btn_add_group.clicked.connect(self.add_group)
-        self.btn_del_group = QPushButton("-")
-        self.btn_del_group.clicked.connect(self.del_group)
-        btn_box.addWidget(self.btn_add_group)
-        btn_box.addWidget(self.btn_del_group)
-
         left_box.addWidget(self.lbl_group_list)
         left_box.addWidget(self.list_groups)
-        left_box.addLayout(btn_box)
 
-        # 右侧：名单编辑
+        # 右侧：名单编辑 + 该组的裁判配置
         right_box = QVBoxLayout()
+
+        # 组别特定的裁判数量设置
+        grp_setting_layout = QHBoxLayout()
+        self.lbl_grp_ref_count = QLabel("Referees for this group:")
+        self.spin_grp_ref_count = QSpinBox()
+        self.spin_grp_ref_count.setRange(1, 10)
+        self.spin_grp_ref_count.setValue(2)
+        self.spin_grp_ref_count.valueChanged.connect(self.save_current_group_config)
+
+        grp_setting_layout.addWidget(self.lbl_grp_ref_count)
+        grp_setting_layout.addWidget(self.spin_grp_ref_count)
+        grp_setting_layout.addStretch()
+        right_box.addLayout(grp_setting_layout)
+
         self.lbl_names_edit = QLabel()
         self.txt_names = QPlainTextEdit()
         self.txt_names.setPlaceholderText("Name 1\nName 2\n...")
         self.txt_names.textChanged.connect(self.save_current_group_names)
         self.txt_names.setEnabled(False)
+        self.spin_grp_ref_count.setEnabled(False)  # 初始禁用，选中组后启用
 
         right_box.addWidget(self.lbl_names_edit)
         right_box.addWidget(self.txt_names)
@@ -196,14 +229,13 @@ class SetupWizard(QWidget):
         h_split.addLayout(right_box, 2)
         contestant_layout.addLayout(h_split)
 
-        # 底部：选择生效组别
-        active_layout = QHBoxLayout()
-        self.lbl_active_group = QLabel()
-        self.combo_active_group = QComboBox()
-        self.combo_active_group.addItem("Free Mode (No List)", None)
-        active_layout.addWidget(self.lbl_active_group)
-        active_layout.addWidget(self.combo_active_group, 1)
-        contestant_layout.addLayout(active_layout)
+        # 底部：初始组别选择
+        start_grp_layout = QHBoxLayout()
+        self.lbl_start_group = QLabel("Start with Group:")
+        self.combo_start_group = QComboBox()
+        start_grp_layout.addWidget(self.lbl_start_group)
+        start_grp_layout.addWidget(self.combo_start_group, 1)
+        contestant_layout.addLayout(start_grp_layout)
 
         layout.addWidget(self.grp_contestants)
         layout.addStretch()
@@ -216,68 +248,101 @@ class SetupWizard(QWidget):
 
         return page
 
+    def update_ui_state_by_mode(self):
+        is_free = self.rb_mode_free.isChecked()
+
+        # 自由模式：启用全局设置，禁用组别面板
+        self.spin_global_ref_count.setEnabled(is_free)
+        self.grp_contestants.setEnabled(not is_free)
+
+        if is_free:
+            self.grp_contestants.setTitle(f"{i18n.tr('grp_contestants')} (Disabled in Free Mode)")
+        else:
+            self.grp_contestants.setTitle(i18n.tr("grp_contestants"))
+
     # --- 名单管理逻辑 ---
-    def add_group(self):
+    def add_group_dialog(self):
+        # 弹窗输入组名
         name, ok = QInputDialog.getText(self, i18n.tr("btn_add_group"), i18n.tr("placeholder_group_name"))
         if ok and name.strip():
             key = name.strip()
-            if key in self.groups_data: return
+            if key in self.groups_data:
+                self.show_error(f"Group '{key}' already exists!")
+                return
+
+            # 询问该组裁判数量
+            count, ok_count = QInputDialog.getInt(self, "Referee Count", f"Referees for group '{key}':", 2, 1, 10)
+            if not ok_count: count = 2
+
+            # 初始化数据
             self.groups_data[key] = []
+            self.groups_config[key] = {"ref_count": count}
+
             self.list_groups.addItem(key)
             self.list_groups.setCurrentRow(self.list_groups.count() - 1)
-            self.refresh_active_combo()
+            self.refresh_start_group_combo()
 
     def del_group(self):
         row = self.list_groups.currentRow()
         if row < 0: return
         item = self.list_groups.takeItem(row)
         key = item.text()
-        if key in self.groups_data:
-            del self.groups_data[key]
-        self.refresh_active_combo()
+        if key in self.groups_data: del self.groups_data[key]
+        if key in self.groups_config: del self.groups_config[key]
+
+        self.refresh_start_group_combo()
         if self.list_groups.count() == 0:
             self.txt_names.clear()
             self.txt_names.setEnabled(False)
+            self.spin_grp_ref_count.setEnabled(False)
 
     def on_group_selected(self, current, previous):
         if not current:
             self.txt_names.clear()
             self.txt_names.setEnabled(False)
+            self.spin_grp_ref_count.setEnabled(False)
             return
 
         key = current.text()
         self.txt_names.setEnabled(True)
+        self.spin_grp_ref_count.setEnabled(True)
+
         # Load names
         names = self.groups_data.get(key, [])
         self.txt_names.setPlainText("\n".join(names))
+
+        # Load ref count
+        cfg = self.groups_config.get(key, {"ref_count": 2})
+        self.spin_grp_ref_count.blockSignals(True)
+        self.spin_grp_ref_count.setValue(cfg.get("ref_count", 2))
+        self.spin_grp_ref_count.blockSignals(False)
 
     def save_current_group_names(self):
         current = self.list_groups.currentItem()
         if not current: return
         key = current.text()
         text = self.txt_names.toPlainText()
-        # Filter empty lines
         names = [line.strip() for line in text.split('\n') if line.strip()]
         self.groups_data[key] = names
 
-    def refresh_active_combo(self):
-        curr_data = self.combo_active_group.currentData()
-        self.combo_active_group.clear()
-        self.combo_active_group.addItem(i18n.tr("val_free_mode"), None)
+    def save_current_group_config(self):
+        current = self.list_groups.currentItem()
+        if not current: return
+        key = current.text()
+        count = self.spin_grp_ref_count.value()
+        if key not in self.groups_config: self.groups_config[key] = {}
+        self.groups_config[key]["ref_count"] = count
 
+    def refresh_start_group_combo(self):
+        curr_text = self.combo_start_group.currentText()
+        self.combo_start_group.clear()
         for grp in self.groups_data.keys():
-            self.combo_active_group.addItem(grp, grp)
+            self.combo_start_group.addItem(grp)
 
-        # Try restore selection
-        idx = self.combo_active_group.findData(curr_data)
-        if idx >= 0:
-            self.combo_active_group.setCurrentIndex(idx)
-        else:
-            self.combo_active_group.setCurrentIndex(0)  # Default to free mode
+        idx = self.combo_start_group.findText(curr_text)
+        if idx >= 0: self.combo_start_group.setCurrentIndex(idx)
 
     def create_page2(self):
-        # ... 保持不变，代码略 ...
-        # 为了完整性，这里复制了原有的 create_page2 代码
         page = QWidget()
         layout = QVBoxLayout(page)
 
@@ -312,24 +377,23 @@ class SetupWizard(QWidget):
         self.btn_nav_back.setText(i18n.tr("btn_back"))
         is_p1 = self.stack.currentIndex() == 0
         self.lbl_title.setText(i18n.tr("wiz_p1_title") if is_p1 else i18n.tr("wiz_p2_title"))
+
+        self.rb_mode_free.setText(i18n.tr("val_free_mode"))
+        self.rb_mode_tourn.setText(i18n.tr("mode_multi_player"))  # 借用多组模式文案，或新增
+
         self.lbl_proj_name.setText(i18n.tr("lbl_proj_name"))
-        self.lbl_game_mode.setText(i18n.tr("lbl_game_mode"))
-        self.rb_single.setText(i18n.tr("mode_single_player"))
-        self.rb_multi.setText(i18n.tr("mode_multi_player"))
         self.lbl_ref_count.setText(i18n.tr("lbl_ref_count"))
 
-        # New
         self.grp_contestants.setTitle(i18n.tr("grp_contestants"))
         self.lbl_group_list.setText(i18n.tr("lbl_group_list"))
         self.btn_add_group.setText(i18n.tr("btn_add_group"))
         self.btn_del_group.setText(i18n.tr("btn_del_group"))
         self.lbl_names_edit.setText(i18n.tr("lbl_names_edit"))
-        self.lbl_active_group.setText(i18n.tr("lbl_active_group"))
-        self.combo_active_group.setItemText(0, i18n.tr("val_free_mode"))
 
         self.btn_next.setText(i18n.tr("btn_next"))
         self.btn_rescan.setText(i18n.tr("btn_rescan"))
         self.btn_finish.setText(i18n.tr("btn_finish"))
+
         if not self.scanned_devices: self.lbl_scan_status.setText(i18n.tr("status_no_dev"))
         for i in range(self.cards_layout.count()):
             item = self.cards_layout.itemAt(i)
@@ -344,30 +408,46 @@ class SetupWizard(QWidget):
         else:
             self.back_to_home_requested.emit()
 
-    def on_mode_changed(self, btn, checked):
-        if checked: self.spin_ref_count.setEnabled(self.rb_multi.isChecked())
-
     def go_to_page2(self):
         self.lbl_error_msg.setText("")
         self.project_name = self.input_proj_name.text() or "Match"
-        count = self.spin_ref_count.value() if self.rb_multi.isChecked() else 1
-        self.generate_referee_cards(count)
 
-        # 如果有暂存的配置（恢复模式），应用到卡片上
+        # 核心逻辑：确定裁判数量
+        ref_count = 1
+        if self.rb_mode_free.isChecked():
+            # 自由模式：直接读取全局设置
+            ref_count = self.spin_global_ref_count.value()
+        else:
+            # 赛事模式：检查组别
+            if not self.groups_data:
+                self.show_error("Please create at least one group for Tournament Mode.")
+                return
+
+            # 计算所有组别中需求的最大值
+            max_needed = 0
+            for k in self.groups_data.keys():
+                cfg = self.groups_config.get(k, {})
+                c = cfg.get("ref_count", 2)
+                if c > max_needed: max_needed = c
+
+            if max_needed == 0: max_needed = 1
+            ref_count = max_needed
+
+        print(f"Generating cards for {ref_count} referees.")
+        self.generate_referee_cards(ref_count)
+
+        # 恢复暂存的配置 (如果有)
         if self._pending_ref_configs:
             for i, card in enumerate(self.ref_cards):
                 if i < len(self._pending_ref_configs):
                     prev = self._pending_ref_configs[i]
-                    # 恢复 Single/Dual 模式
                     mode_idx = card.combo_mode.findData(prev.get("mode", "SINGLE"))
-                    if mode_idx >= 0:
-                        card.combo_mode.setCurrentIndex(mode_idx)
-                    # 无法恢复具体的 Device 对象（因为需要扫描），但可以考虑显示上次的地址提示用户
-                    # 这里暂略，仅恢复结构
+                    if mode_idx >= 0: card.combo_mode.setCurrentIndex(mode_idx)
 
         self.stack.setCurrentIndex(1)
         self.lbl_title.setText(i18n.tr("wiz_p2_title"))
         self.start_scan()
+
     def generate_referee_cards(self, count):
         while self.cards_layout.count() > 1:
             child = self.cards_layout.takeAt(0)
@@ -431,19 +511,22 @@ class SetupWizard(QWidget):
             final_referees.append(ref)
 
         # 准备 Tournament Data
-        active_group = self.combo_active_group.currentData()
+        if self.rb_mode_free.isChecked():
+            active_group = None
+        else:
+            active_group = self.combo_start_group.currentText()
+
         tournament_data = {
             "groups": self.groups_data,
+            "group_configs": self.groups_config,  # 保存组别裁判配置
             "active_group": active_group
         }
 
         self.stop_scan_safe()
         self.lbl_error_msg.setText("")
-        # 发送信号
         self.setup_finished.emit(self.project_name, final_referees, tournament_data)
 
 
-# RefereeConfigCard 类保持不变...
 class RefereeConfigCard(QGroupBox):
     def __init__(self, index):
         super().__init__()

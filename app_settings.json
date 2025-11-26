@@ -1,4 +1,5 @@
 {
     "language": "zh",
-    "reset_shortcut": "Ctrl+G"
+    "reset_shortcut": "Ctrl+G",
+    "suppress_reset_confirm": true
 }
