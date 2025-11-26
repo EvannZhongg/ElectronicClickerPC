@@ -12,7 +12,7 @@ class I18nManager(QObject):
 
         self.translations = {
             "zh": {
-                # ... (保留现有词条) ...
+                # ... (保留之前所有词条) ...
                 "app_title": "电子计分系统 PC端",
                 "menu_settings": "设置",
                 "menu_language": "语言选择",
@@ -93,10 +93,14 @@ class I18nManager(QObject):
                 "btn_open": "打开",
                 "title_scored": "重新打分确认",
                 "msg_contestant_scored": "选手【{}】已经完成打分（系统检测到历史记录）。\n\n继续将覆盖/追加该选手的记录，是否确定？",
+                "title_warning": "提醒",
+                "msg_all_contestants_scored": "注意：本组所有选手均已完成打分！\n\n即将回到列表首位，请谨慎操作以免覆盖成绩。",
 
                 # --- 新增 ---
-                "title_warning": "提醒",
-                "msg_all_contestants_scored": "注意：本组所有选手均已完成打分！\n\n即将回到列表首位，请谨慎操作以免覆盖成绩。"
+                "title_reset": "重置确认",
+                "msg_reset_confirm": "确定要执行【归零】操作吗？",
+                "msg_reset_auto_suffix": "\n\n[连赛模式] 将保存当前选手【{}】成绩并切换下一位。",
+                "chk_dont_ask_again": "下次不再提醒"
             },
             "en": {
                 # ... (Keep existing) ...
@@ -180,10 +184,14 @@ class I18nManager(QObject):
                 "btn_open": "Open",
                 "title_scored": "Re-score Confirmation",
                 "msg_contestant_scored": "Contestant '{}' has already been scored.\n\nContinue to overwrite/append?",
+                "title_warning": "Warning",
+                "msg_all_contestants_scored": "Note: All contestants in this group have been scored!\n\nReturning to the first player. Please proceed with caution.",
 
                 # --- New ---
-                "title_warning": "Warning",
-                "msg_all_contestants_scored": "Note: All contestants in this group have been scored!\n\nReturning to the first player. Please proceed with caution."
+                "title_reset": "Reset Confirmation",
+                "msg_reset_confirm": "Are you sure you want to RESET ZERO?",
+                "msg_reset_auto_suffix": "\n\n[Auto-Switch] Will SAVE results for '{}' and switch to NEXT.",
+                "chk_dont_ask_again": "Don't ask me again"
             }
         }
 

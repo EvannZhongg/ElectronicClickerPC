@@ -157,6 +157,10 @@ class MainWindow(QMainWindow):
         self.wizard_page.start_scan()
 
     def on_setup_finished(self, project_name, referees, tournament_data):
+        """
+        阶段1：接收数据并保存，然后立即返回，将繁重的UI初始化推迟到下一次事件循环。
+        防止在信号处理槽中直接进行复杂的UI销毁/重建导致栈溢出。
+        """
         self.project_name = project_name
         self.referees = referees
         self.tournament_data = tournament_data
@@ -169,6 +173,7 @@ class MainWindow(QMainWindow):
 
         self.current_idx = -1
 
+        # 1. 保存/更新配置 (轻量级 IO 操作)
         try:
             referees_config = []
             for ref in referees:
@@ -190,8 +195,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Storage Init Failed: {e}")
 
+        # 2. 【核心修复】推迟执行 UI 初始化逻辑
+        # 使用 QTimer.singleShot(10) 让当前的 signal/slot 调用栈先结束
+        QTimer.singleShot(10, self.finalize_setup_ui)
+
+    def finalize_setup_ui(self):
+        """
+        阶段2：在新的事件循环中构建 Dashboard UI，避免 crash。
+        """
         self.setup_dashboard()
 
+        # 智能选择初始选手
         initial_idx = 0
         found_unscored = False
         if self.contestants:
@@ -201,12 +215,15 @@ class MainWindow(QMainWindow):
                     found_unscored = True
                     break
 
+            # 如果全员已打分，才弹窗提示（此时在独立的事件循环中，弹窗安全）
             if not found_unscored and len(self.contestants) > 0:
                 QMessageBox.warning(self, i18n.tr("title_warning"), i18n.tr("msg_all_contestants_scored"))
 
         self.load_contestant(initial_idx)
         self.update_texts()
         self.stack.setCurrentIndex(2)
+
+        # 延迟连接蓝牙
         QTimer.singleShot(500, self.connect_devices)
 
     def setup_dashboard(self):
@@ -358,18 +375,12 @@ class MainWindow(QMainWindow):
                 self.scored_contestants.add(current_name)
 
     def load_contestant(self, idx, force=False):
-        """
-        加载指定索引的选手，包含重复检查和设备重置。
-        """
         if not self.contestants: return
 
-        # 确保索引合法
         if 0 <= idx < len(self.contestants):
             target_name = self.contestants[idx]
 
-            # 1. 检查是否重复打分 (非强制加载且目标已在记录中)
-            # 注意：idx != self.current_idx 判断是防止点击“当前人”也触发弹窗
-            # 但初始化时 current_idx = -1，所以如果第0人已打分，也会触发检查，符合逻辑。
+            # 覆盖提醒逻辑
             if not force and idx != self.current_idx and target_name in self.scored_contestants:
                 reply = QMessageBox.question(
                     self,
@@ -379,16 +390,12 @@ class MainWindow(QMainWindow):
                     QMessageBox.StandardButton.No
                 )
                 if reply == QMessageBox.StandardButton.No:
-                    # 用户取消跳转，UI 恢复显示当前选手
                     self.combo_players.blockSignals(True)
-                    # 恢复到原来的位置，如果原来是 -1 (还没选人)，那就保持 -1 或者强行选一个？
-                    # 这种情况下通常保持原样即可。但 ComboBox 可能已经变了，需要变回来。
                     restore_idx = self.current_idx if self.current_idx >= 0 else 0
                     self.combo_players.setCurrentIndex(restore_idx)
                     self.combo_players.blockSignals(False)
-                    return  # 中止切换
+                    return
 
-            # 2. 执行切换
             self.current_idx = idx
             self.combo_players.setCurrentIndex(idx)
             for ref in self.referees:
@@ -396,19 +403,12 @@ class MainWindow(QMainWindow):
             if self.overlay:
                 self.overlay.update_title(target_name)
 
-            # 3. 切换成功，发送重置信号给设备
             self.reset_devices_only()
 
     def switch_contestant(self, delta):
         if not self.contestants: return
-
         count = len(self.contestants)
-        # 【关键修改】使用取模运算实现循环跳转
-        # (当前索引 + 偏移量) % 总数
-        # 例如 3人(0,1,2)，当前2，delta=1 -> (2+1)%3 = 0 (回到A)
-        # 当前0，delta=-1 -> (0-1)%3 = 2 (回到C)
         new_idx = (self.current_idx + delta) % count
-
         self.load_contestant(new_idx)
 
     def jump_to_contestant(self, idx):
@@ -416,18 +416,37 @@ class MainWindow(QMainWindow):
 
     def confirm_reset_all(self):
         is_auto_next = self.chk_auto_next.isChecked() and len(self.contestants) > 0
-        msg = "Are you sure you want to RESET ZERO?"
-        if is_auto_next: msg += f"\n\n[Auto-Switch] This will SAVE results for '{self.contestants[self.current_idx]}' and switch to NEXT."
-        reply = QMessageBox.question(self, "Confirm Reset", msg,
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
+        should_confirm = not app_settings.get("suppress_reset_confirm")
+        proceed = True
+
+        if should_confirm:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(i18n.tr("title_reset"))
+            msg_box.setIcon(QMessageBox.Icon.Question)
+
+            text = i18n.tr("msg_reset_confirm")
+            if is_auto_next:
+                curr_name = self.contestants[self.current_idx] if self.contestants else "Current"
+                text += i18n.tr("msg_reset_auto_suffix", curr_name)
+
+            msg_box.setText(text)
+            chk_dont_ask = QCheckBox(i18n.tr("chk_dont_ask_again"))
+            msg_box.setCheckBox(chk_dont_ask)
+
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+            ret = msg_box.exec()
+
+            if ret != QMessageBox.StandardButton.Yes:
+                proceed = False
+
+            if chk_dont_ask.isChecked():
+                app_settings.set("suppress_reset_confirm", True)
+
+        if proceed:
             if is_auto_next:
                 self.save_current_result()
-                # 这里先保存，然后 switch_contestant 会负责 reset devices 和 load next
-                # 注意：switch_contestant 内部调用 load_contestant 会再次 reset devices
-                # 所以这里可以省略显式的 reset，或者为了保险保留也无妨 (Reset指令通常幂等)
-                self.reset_devices_only()
                 self.switch_contestant(1)
             else:
                 self.reset_devices_only()

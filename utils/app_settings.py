@@ -7,7 +7,8 @@ SETTINGS_FILE = "app_settings.json"
 # 默认配置
 DEFAULT_SETTINGS = {
     "language": "zh",
-    "reset_shortcut": "Ctrl+G"
+    "reset_shortcut": "Ctrl+G",
+    "suppress_reset_confirm": False  # 【新增】默认开启提醒
 }
 
 class AppSettings:
@@ -21,7 +22,6 @@ class AppSettings:
             try:
                 with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # 更新设置，保留默认值中存在但文件中没有的新增字段
                     self.settings.update(data)
             except Exception as e:
                 print(f"Failed to load settings: {e}")
