@@ -111,10 +111,9 @@ class I18nManager(QObject):
                 "lbl_filter_group": "选择组别:",
                 "val_all_groups": "全部组别",
                 "col_final_score": "最终得分",
-
-                # 新增
                 "header_col_raw": "原始分",
                 "header_col_scaled": "比例分"
+
             },
             "en": {
                 # ... (Keep existing) ...
